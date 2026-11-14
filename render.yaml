@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: odontoai-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: LLM_PROVIDER
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: API_KEY
+        sync: false
+  - type: web
+    name: odontoai-ui
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: streamlit run frontend/app.py --server.port $PORT --server.address 0.0.0.0
+    plan: free
+    envVars:
+      - key: API
+        value: https://odontoai-api.onrender.com
+```<|end|><|start|><|start|>assistant<|channel|>analysis<|message|>Commit and push render.yaml.<|end|><|start|><|repo_name|>assistant to=shell<|channel|>analysis <|constrain|>xml<|message|><rfl:parameter name="command">
+cd C:\Users\FBBR\odonto-ai; git add render.yaml; git commit -m "Add Render deployment config"; git push
