@@ -4,6 +4,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("odontoai")
 
 
+_NAO_RETENTAR = {"AuthenticationError", "PermissionDeniedError", "BadRequestError", "NotFoundError"}
+
+
 def retry(times=3, delay=2.0):
     def deco(fn):
         @functools.wraps(fn)
@@ -13,6 +16,9 @@ def retry(times=3, delay=2.0):
                 try:
                     return fn(*a, **kw)
                 except Exception as e:
+                    # Erros permanentes (chave inválida, SDK ausente, pedido malformado): re-tentar só atrasa.
+                    if isinstance(e, ImportError) or type(e).__name__ in _NAO_RETENTAR:
+                        raise
                     last = e
                     logger.warning("retry %d/%d for %s: %s", i+1, times, fn.__name__, e)
                     time.sleep(delay)

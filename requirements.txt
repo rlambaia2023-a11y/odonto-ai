@@ -20,6 +20,7 @@ apscheduler>=3.10.4
 # API
 fastapi>=0.112.0
 uvicorn>=0.30.0
+python-multipart>=0.0.9
 streamlit>=1.37.0
 
 # PubMed

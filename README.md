@@ -24,3 +24,17 @@ python -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env
 ```
+
+## Corretor de provas (`src/grading/`)
+Corrige as provas de uma turma: objetivas na hora pelo gabarito (sem IA) e discursivas pela IA
+seguindo a rubrica do professor, em paralelo. Respostas ambíguas, ilegíveis ou com baixa confiança
+da IA saem marcadas `revisar = SIM` na planilha. A nota final é sempre do professor.
+
+1. Preencha o gabarito/rubrica: modelo em `examples/gabarito_exemplo.json`.
+2. Exporte as respostas da turma em CSV (coluna `aluno` + `Q1`, `Q2`...): modelo em `examples/respostas_exemplo.csv`.
+3. Corrija:
+```bash
+python -m src.grading.cli examples/gabarito_exemplo.json examples/respostas_exemplo.csv -o notas.csv
+```
+Também disponível na API (`POST /grading/corrigir`, `/grading/corrigir-planilha`, `/grading/transcrever`
+para foto de prova em papel) e na tela **Corrigir provas** do Streamlit.

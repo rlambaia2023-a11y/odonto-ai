@@ -5,9 +5,11 @@ from src.ingestion.run import update
 from src.agent.chat import answer
 from src.clinical.cases import ingest_case, similar_cases
 from src.multimodal.radiograph import analyze_image
+from src.grading.router import router as grading_router
 import tempfile, os
 
 app = FastAPI(title="OdontoAI")
+app.include_router(grading_router)
 
 @app.get("/health")
 def health():

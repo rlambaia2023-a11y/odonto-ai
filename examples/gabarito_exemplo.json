@@ -1,0 +1,25 @@
+{
+  "titulo": "P1 - Periodontia e Cariologia",
+  "disciplina": "Odontologia",
+  "instrucoes_correcao": "Aceitar sinônimos técnicos. Não descontar por português, só por conteúdo.",
+  "questoes": [
+    {"id": "Q1", "tipo": "objetiva", "valor": 1, "enunciado": "Principal microrganismo associado à cárie dentária:", "gabarito": "B"},
+    {"id": "Q2", "tipo": "objetiva", "valor": 1, "enunciado": "Concentração de flúor do dentifrício convencional (ppm F):", "gabarito": "C"},
+    {"id": "Q3", "tipo": "objetiva", "valor": 1, "enunciado": "Questão anulada / duas corretas", "gabarito": "A,D"},
+    {
+      "id": "Q4", "tipo": "discursiva", "valor": 3,
+      "enunciado": "Diferencie gengivite de periodontite quanto a etiologia, sinais clínicos e reversibilidade.",
+      "resposta_esperada": "Ambas são iniciadas pelo biofilme. Gengivite: inflamação restrita à gengiva, sangramento, edema, sem perda de inserção nem óssea, reversível com controle do biofilme. Periodontite: perda de inserção clínica e de osso alveolar, bolsa periodontal, mobilidade em casos avançados; destruição irreversível, mas a doença pode ser controlada.",
+      "rubrica": [
+        {"descricao": "Cita o biofilme como fator etiológico de ambas", "pontos": 1},
+        {"descricao": "Sinais clínicos: gengivite sem perda de inserção; periodontite com perda de inserção/óssea e bolsa", "pontos": 1},
+        {"descricao": "Reversibilidade: gengivite reversível; periodontite com dano irreversível", "pontos": 1}
+      ]
+    },
+    {
+      "id": "Q5", "tipo": "discursiva", "valor": 2,
+      "enunciado": "Explique o mecanismo de ação do flúor na prevenção da cárie.",
+      "resposta_esperada": "Ação principalmente tópica: presença constante de flúor no meio bucal reduz a desmineralização e potencializa a remineralização, com formação de fluorapatita/fluoreto de cálcio. Efeito sistêmico pré-eruptivo é secundário."
+    }
+  ]
+}
