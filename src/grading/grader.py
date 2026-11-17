@@ -5,9 +5,10 @@ import csv
 import io
 import os
 from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
 
 from .discursive import corrigir_discursiva
-from .llm import LLMFn, chamar_llm, extrair_json
+from .llm import LLMFn, chamar_llm
 from .models import Entrega, Gabarito, ResultadoAluno, ResultadoQuestao
 from .objective import corrigir_objetiva
 
@@ -20,9 +21,16 @@ def corrigir_aluno(gab: Gabarito, entrega: Entrega, llm: LLMFn | None = None, us
 
 
 def corrigir_turma(
-    gab: Gabarito, entregas: list[Entrega], llm: LLMFn | None = None, usar_literatura: bool = False
+    gab: Gabarito,
+    entregas: list[Entrega],
+    llm: LLMFn | None = None,
+    usar_literatura: bool = False,
+    progresso: Callable[[int, int], None] | None = None,
 ) -> list[ResultadoAluno]:
-    """Corrige todos os alunos. Cada questão discursiva de cada aluno é uma tarefa paralela."""
+    """Corrige todos os alunos. Cada questão discursiva de cada aluno é uma tarefa paralela.
+
+    `progresso(feitas, total)` é chamado a cada discursiva corrigida.
+    """
     llm = llm or chamar_llm
     tarefas: list[tuple[int, int]] = []  # (aluno, questão) discursivas
     resultados: list[list[ResultadoQuestao | None]] = []
@@ -44,8 +52,10 @@ def corrigir_turma(
 
     if tarefas:
         with ThreadPoolExecutor(max_workers=max(1, min(MAX_PARALELO, len(tarefas)))) as pool:
-            for ia, iq, r in pool.map(_rodar, tarefas):
+            for n, (ia, iq, r) in enumerate(pool.map(_rodar, tarefas), start=1):
                 resultados[ia][iq] = r
+                if progresso:
+                    progresso(n, len(tarefas))
 
     saida = []
     for e, linha in zip(entregas, resultados):
@@ -63,7 +73,13 @@ def corrigir_turma(
 
 def ler_respostas_csv(conteudo: bytes | str) -> list[Entrega]:
     """CSV com coluna 'aluno' e uma coluna por questão (Q1, Q2...). Aceita ';' ou ','."""
-    texto = conteudo.decode("utf-8-sig") if isinstance(conteudo, bytes) else conteudo
+    if isinstance(conteudo, bytes):
+        try:
+            texto = conteudo.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            texto = conteudo.decode("cp1252")  # Excel em pt-BR salva CSV em ANSI
+    else:
+        texto = conteudo
     if not texto.strip():
         raise ValueError("Planilha de respostas vazia")
     try:
@@ -122,26 +138,3 @@ def resumo_turma(resultados: list[ResultadoAluno]) -> dict:
         "menor": notas[0],
         "a_revisar": sum(1 for r in resultados if r.revisar),
     }
-
-
-# ---------- Prova em papel (foto/digitalização) ----------
-
-SYSTEM_TRANSCRICAO = (
-    "Você transcreve provas manuscritas de alunos de Odontologia. Transcreva fielmente o que o aluno escreveu, "
-    "sem corrigir, completar ou melhorar. Use [ilegível] onde não for possível ler. Em questões objetivas, "
-    "informe só a letra marcada; se houver mais de uma marcada ou rasura, escreva 'AMBÍGUA'. "
-    "Responda SOMENTE com JSON válido."
-)
-
-
-def transcrever_prova(imagem: bytes, gab: Gabarito, media_type: str = "image/png", llm: LLMFn | None = None) -> Entrega:
-    """Lê a foto da prova e devolve as respostas do aluno para conferência antes de corrigir."""
-    llm = llm or chamar_llm
-    ids = ", ".join(f"{q.id} ({q.tipo})" for q in gab.questoes)
-    pedido = (
-        f"Questões desta prova: {ids}.\n"
-        'Formato: {"aluno": "<nome escrito na prova ou vazio>", "respostas": {"<id>": "<texto ou letra>"}}'
-    )
-    dados = extrair_json(llm(SYSTEM_TRANSCRICAO, pedido, image=imagem, media_type=media_type))
-    respostas = {str(k): str(v) for k, v in (dados.get("respostas") or {}).items()}
-    return Entrega(aluno=str(dados.get("aluno") or "Sem nome").strip() or "Sem nome", respostas=respostas)

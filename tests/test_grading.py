@@ -20,12 +20,14 @@ def llm_falso(resposta: dict | str):
     chamadas = []
     lock = threading.Lock()
 
-    def fn(system, user, image=None, media_type="image/png"):
+    def fn(system, user, imagens=None):
         with lock:
             chamadas.append(user)
+            fn.imagens.append(imagens)
         return resposta if isinstance(resposta, str) else json.dumps(resposta)
 
     fn.chamadas = chamadas
+    fn.imagens = []
     return fn
 
 
@@ -169,7 +171,7 @@ def test_api_gabarito_invalido(cliente):
 def test_api_transcrever_rejeita_tipo(cliente):
     r = cliente.post(
         "/grading/transcrever",
-        files={"gabarito": (EX / "gabarito_exemplo.json").read_bytes(), "imagem": ("p.pdf", b"x", "application/pdf")},
+        files={"gabarito": (EX / "gabarito_exemplo.json").read_bytes(), "paginas": ("p.txt", b"x", "text/plain")},
         headers={"x-api-key": "segredo"},
     )
     assert r.status_code == 415
@@ -177,10 +179,10 @@ def test_api_transcrever_rejeita_tipo(cliente):
 
 def test_api_transcrever(cliente, monkeypatch):
     llm = llm_falso({"aluno": "Ana", "respostas": {"Q1": "B", "Q4": "biofilme..."}})
-    monkeypatch.setattr("src.grading.grader.chamar_llm", llm)
+    monkeypatch.setattr("src.grading.papel.chamar_llm", llm)
     r = cliente.post(
         "/grading/transcrever",
-        files={"gabarito": (EX / "gabarito_exemplo.json").read_bytes(), "imagem": ("p.png", b"\x89PNG", "image/png")},
+        files={"gabarito": (EX / "gabarito_exemplo.json").read_bytes(), "paginas": ("p.png", b"\x89PNG", "image/png")},
         headers={"x-api-key": "segredo"},
     )
     assert r.status_code == 200 and r.json()["respostas"]["Q1"] == "B"

@@ -18,8 +18,11 @@ GRADING_MODEL_ANTHROPIC = os.getenv("GRADING_MODEL_ANTHROPIC", "claude-sonnet-5-
 GRADING_MODEL_OPENAI = os.getenv("GRADING_MODEL_OPENAI", "gpt-4o")
 
 
+Imagem = tuple[bytes, str]  # (conteúdo, media_type), ex.: (b"...", "image/jpeg")
+
+
 class LLM(Protocol):
-    def __call__(self, system: str, user: str, image: bytes | None = None, media_type: str = "image/png") -> str: ...
+    def __call__(self, system: str, user: str, imagens: list[Imagem] | None = None) -> str: ...
 
 
 def extrair_json(texto: str) -> dict:
@@ -31,27 +34,25 @@ def extrair_json(texto: str) -> dict:
     return json.loads(bruto)
 
 
-def chamar_llm(system: str, user: str, image: bytes | None = None, media_type: str = "image/png") -> str:
-    """LLM padrão, conforme LLM_PROVIDER do .env."""
+def chamar_llm(system: str, user: str, imagens: list[Imagem] | None = None) -> str:
+    """LLM padrão, conforme LLM_PROVIDER do .env. `imagens`: páginas da prova, em ordem."""
     require_env()  # fora do retry: chave ausente não deve ser re-tentada
-    return _chamar(system, user, image, media_type)
+    return _chamar(system, user, imagens or [])
 
 
 @retry(times=3, delay=2.0)
-def _chamar(system: str, user: str, image: bytes | None, media_type: str) -> str:
+def _chamar(system: str, user: str, imagens: list[Imagem]) -> str:
     if LLM_PROVIDER == "anthropic":
         import anthropic
 
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        content: list[dict] = []
-        if image is not None:
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": media_type, "data": base64.b64encode(image).decode()},
-            })
+        content: list[dict] = [
+            {"type": "image", "source": {"type": "base64", "media_type": mt, "data": base64.b64encode(b).decode()}}
+            for b, mt in imagens
+        ]
         content.append({"type": "text", "text": user})
         r = client.messages.create(
-            model=GRADING_MODEL_ANTHROPIC, max_tokens=2048, temperature=0,
+            model=GRADING_MODEL_ANTHROPIC, max_tokens=4096, temperature=0,
             system=system, messages=[{"role": "user", "content": content}],
         )
         return "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
@@ -59,16 +60,14 @@ def _chamar(system: str, user: str, image: bytes | None, media_type: str) -> str
     from openai import OpenAI
 
     client = OpenAI(api_key=OPENAI_API_KEY)
-    if image is not None:
-        b64 = base64.b64encode(image).decode()
-        user_content: list[dict] | str = [
-            {"type": "text", "text": user},
-            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}},
+    user_content: list[dict] | str = user
+    if imagens:
+        user_content = [{"type": "text", "text": user}] + [
+            {"type": "image_url", "image_url": {"url": f"data:{mt};base64,{base64.b64encode(b).decode()}"}}
+            for b, mt in imagens
         ]
-    else:
-        user_content = user
     r = client.chat.completions.create(
-        model=GRADING_MODEL_OPENAI, temperature=0,
+        model=GRADING_MODEL_OPENAI, temperature=0, max_tokens=4096,
         response_format={"type": "json_object"},
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user_content}],
     )

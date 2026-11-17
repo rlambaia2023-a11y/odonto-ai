@@ -26,6 +26,10 @@ streamlit>=1.37.0
 # PubMed
 biopython>=1.84
 
+# Provas em papel (PDF digitalizado)
+pypdfium2>=4.30.0
+pillow>=10.0.0
+
 # Tests
 pytest>=8.0.0
 httpx>=0.27.0
