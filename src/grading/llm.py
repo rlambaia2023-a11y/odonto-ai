@@ -14,7 +14,9 @@ from typing import Callable, Protocol
 from ..config import ANTHROPIC_API_KEY, LLM_PROVIDER, OPENAI_API_KEY
 from ..utils import require_env, retry
 
-GRADING_MODEL_ANTHROPIC = os.getenv("GRADING_MODEL_ANTHROPIC", "claude-sonnet-5-5")
+GRADING_MODEL_ANTHROPIC = os.getenv("GRADING_MODEL_ANTHROPIC", "claude-opus-5-5")
+# Profundidade de raciocínio do Claude: low | medium | high | xhigh | max (mais alto = mais lento e caro).
+GRADING_EFFORT = os.getenv("GRADING_EFFORT", "high")
 GRADING_MODEL_OPENAI = os.getenv("GRADING_MODEL_OPENAI", "gpt-4o")
 
 
@@ -51,11 +53,18 @@ def _chamar(system: str, user: str, imagens: list[Imagem]) -> str:
             for b, mt in imagens
         ]
         content.append({"type": "text", "text": user})
-        r = client.messages.create(
-            model=GRADING_MODEL_ANTHROPIC, max_tokens=4096, temperature=0,
+        # fallbacks="default": se o modelo recusar por política, o servidor refaz no modelo reserva.
+        r = client.beta.messages.create(
+            model=GRADING_MODEL_ANTHROPIC, max_tokens=16000,
+            output_config={"effort": GRADING_EFFORT},
+            betas=["server-side-fallback-2026-07-01"], fallbacks="default",
             system=system, messages=[{"role": "user", "content": content}],
         )
-        return "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+        if r.stop_reason == "refusal":
+            raise ValueError(f"IA recusou a resposta ({getattr(r.stop_details, 'category', None)})")
+        if r.stop_reason == "max_tokens":
+            raise ValueError("Resposta da IA cortada (max_tokens)")
+        return "".join(b.text for b in r.content if b.type == "text")
 
     from openai import OpenAI
 
