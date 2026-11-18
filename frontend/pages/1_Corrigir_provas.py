@@ -24,6 +24,9 @@ from src.grading import (  # noqa: E402
     resumo_turma, transcricoes_csv,
 )
 from src.grading.papel import EXT_IMAGEM, ProvaPapel, pdf_para_imagens, transcrever_prova  # noqa: E402
+from src.grading.gabarito_ia import (  # noqa: E402
+    gabarito_para_linhas, ler_documento, linhas_para_gabarito, montar_gabarito,
+)
 
 st.set_page_config(page_title="Corrigir provas · OdontoAI", page_icon="🦷", layout="wide")
 
@@ -99,10 +102,74 @@ with st.expander("Como funciona"):
     if modelo.exists():
         st.download_button("Baixar modelo de gabarito", modelo.read_bytes(), "gabarito_modelo.json", "application/json")
 
-gab_file = st.file_uploader("Gabarito e rubrica (.json)", type=["json"])
-gab = ler_gabarito(gab_file) if gab_file else None
+st.subheader("1. Gabarito")
+gab: Gabarito | None = None
+fonte = st.radio(
+    "De onde vem o gabarito?",
+    ["Montar a partir da minha prova", "Já tenho o arquivo de gabarito (.json)"],
+    horizontal=True, label_visibility="collapsed",
+)
+if fonte.startswith("Montar"):
+    doc = st.file_uploader(
+        "Sua prova com as respostas (PDF, Word, foto ou texto). Sem as respostas, a IA escreve um rascunho para o senhor conferir.",
+        type=["pdf", "docx", "png", "jpg", "jpeg", "webp", "txt"],
+    )
+    c1, c2 = st.columns([1, 3])
+    nota_total = c1.number_input("Valor total da prova", min_value=1.0, max_value=1000.0, value=10.0, step=0.5)
+    orient = c2.text_input("Orientações (opcional)", placeholder="Ex.: questões 1 a 10 valem 0,5; aceitar sinônimos técnicos")
+    if st.button("Montar gabarito", disabled=not doc):
+        try:
+            paginas, texto = ler_documento(doc.name, doc.getvalue())
+            with st.spinner("Lendo a prova e montando o gabarito..."):
+                g, rasc = montar_gabarito(paginas, texto, nota_total=nota_total, orientacoes=orient)
+            st.session_state["gab_edit"] = {
+                "linhas": gabarito_para_linhas(g, rasc), "titulo": g.titulo, "disciplina": g.disciplina,
+            }
+            st.session_state.pop("res_provas", None)
+            st.session_state.pop("res_planilhas", None)
+        except Exception as e:  # documento ruim ou falha da IA: mensagem clara, sem derrubar a tela
+            st.error(f"Não foi possível montar o gabarito: {e}")
+    if "gab_edit" in st.session_state:
+        ed = st.session_state["gab_edit"]
+        st.markdown("**Confira e ajuste.** Dá para editar qualquer célula, apagar ou incluir questões.")
+        t1, t2 = st.columns(2)
+        titulo = t1.text_input("Título", ed["titulo"])
+        disciplina = t2.text_input("Disciplina", ed["disciplina"])
+        instrucoes = st.text_input("Orientações de correção para a IA (opcional)", placeholder="Ex.: não descontar por português")
+        df_ed = st.data_editor(
+            pd.DataFrame(ed["linhas"]), num_rows="dynamic", use_container_width=True, hide_index=True,
+            column_config={
+                "id": st.column_config.TextColumn("Questão", width="small"),
+                "tipo": st.column_config.SelectboxColumn("Tipo", options=["objetiva", "discursiva"], width="small"),
+                "valor": st.column_config.NumberColumn("Valor", min_value=0.0, step=0.25, width="small"),
+                "gabarito": st.column_config.TextColumn("Alternativa", help="Objetivas: letra correta (A,D se duas)", width="small"),
+                "enunciado": st.column_config.TextColumn("Enunciado", width="medium"),
+                "resposta_esperada": st.column_config.TextColumn("Resposta esperada", width="large"),
+                "rubrica": st.column_config.TextColumn("Rubrica", help="critério (1 pt) ; critério (2 pt)", width="large"),
+                "conferir": st.column_config.TextColumn("Conferir", disabled=True, width="small"),
+            },
+            key="editor_gabarito",
+        )
+        a_conferir = [l["id"] for l in ed["linhas"] if l.get("conferir")]
+        if a_conferir:
+            st.warning(f"A IA escreveu a resposta destas questões. Confira antes de corrigir: {', '.join(a_conferir)}")
+        try:
+            linhas = df_ed.astype(object).where(df_ed.notna(), "").to_dict("records")
+            gab = linhas_para_gabarito(linhas, titulo, disciplina, instrucoes)
+        except ValueError as e:
+            st.error(f"Ajuste o gabarito: {e}")
+else:
+    gab_file = st.file_uploader("Gabarito e rubrica (.json)", type=["json"])
+    gab = ler_gabarito(gab_file) if gab_file else None
+
 if gab:
     st.success(f"{gab.titulo}: {len(gab.questoes)} questões, valendo {gab.valor_total:g} pontos.")
+    st.download_button(
+        "Guardar este gabarito (.json) para usar de novo", gab.model_dump_json(indent=2).encode("utf-8"),
+        "gabarito.json", "application/json",
+    )
+
+st.subheader("2. Provas")
 
 aba_provas, aba_planilhas, aba_uma = st.tabs(["Provas dos alunos", "Provas feitas no computador", "Uma prova avulsa"])
 
@@ -143,7 +210,7 @@ with aba_provas:
         ppa = st.number_input("Quantas páginas tem cada prova?", min_value=1, max_value=20, value=2)
         pronto = bool(gab and pdf_turma)
     if not gab:
-        st.info("Envie primeiro o gabarito e a rubrica, no campo acima.")
+        st.info("Monte ou envie o gabarito primeiro (passo 1, acima).")
     if st.button("Corrigir provas", type="primary", disabled=not pronto):
         try:
             with st.spinner("Preparando as páginas..."):
