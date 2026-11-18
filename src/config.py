@@ -1,7 +1,8 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# O .env do projeto prevalece sobre variáveis herdadas de outros programas (no servidor não há .env).
+load_dotenv(override=True)
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

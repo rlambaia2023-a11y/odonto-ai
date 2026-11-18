@@ -18,6 +18,8 @@ GRADING_MODEL_ANTHROPIC = os.getenv("GRADING_MODEL_ANTHROPIC", "claude-opus-5-5"
 # Profundidade de raciocínio do Claude: low | medium | high | xhigh | max (mais alto = mais lento e caro).
 GRADING_EFFORT = os.getenv("GRADING_EFFORT", "high")
 GRADING_MODEL_OPENAI = os.getenv("GRADING_MODEL_OPENAI", "gpt-4o")
+# Endereço fixo: não herda ANTHROPIC_BASE_URL de outros programas da máquina (ex.: proxies de ferramentas).
+GRADING_ANTHROPIC_BASE_URL = os.getenv("GRADING_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 
 
 Imagem = tuple[bytes, str]  # (conteúdo, media_type), ex.: (b"...", "image/jpeg")
@@ -47,7 +49,7 @@ def _chamar(system: str, user: str, imagens: list[Imagem]) -> str:
     if LLM_PROVIDER == "anthropic":
         import anthropic
 
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, base_url=GRADING_ANTHROPIC_BASE_URL)
         content: list[dict] = [
             {"type": "image", "source": {"type": "base64", "media_type": mt, "data": base64.b64encode(b).decode()}}
             for b, mt in imagens

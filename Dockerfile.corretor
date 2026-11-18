@@ -1,0 +1,16 @@
+# Corretor de provas OdontoAI: só a tela Streamlit + src/grading (leve, sem RAG).
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY requirements-corretor.txt .
+RUN pip install --no-cache-dir -r requirements-corretor.txt
+COPY src ./src
+COPY frontend ./frontend
+COPY examples ./examples
+RUN useradd --create-home app && chown -R app /app
+USER app
+# Railway/Render informam a porta em $PORT
+CMD streamlit run frontend/pages/1_Corrigir_provas.py \
+    --server.port ${PORT:-8501} --server.address 0.0.0.0 \
+    --server.headless true --server.maxUploadSize 300 \
+    --browser.gatherUsageStats false

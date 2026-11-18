@@ -1,0 +1,9 @@
+# Dependências mínimas do corretor de provas (deploy separado, sem RAG/PyTorch)
+python-dotenv>=1.0.0
+pydantic>=2.6.0
+anthropic>=0.34.0
+openai>=1.40.0
+streamlit>=1.37.0
+pandas>=2.0.0
+pypdfium2>=4.30.0
+pillow>=10.0.0
