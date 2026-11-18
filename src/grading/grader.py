@@ -112,15 +112,17 @@ def resultados_csv(gab: Gabarito, resultados: list[ResultadoAluno]) -> str:
     buf.write("﻿")
     w = csv.writer(buf, delimiter=";")
     ids = [q.id for q in gab.questoes]
-    w.writerow(["aluno", *ids, "nota", "valor_total", "revisar", "pontos_a_revisar", "feedback"])
+    com_origem = any(r.origem for r in resultados)
+    w.writerow(["aluno", *ids, "nota", "valor_total", "revisar", "pontos_a_revisar", "feedback"]
+               + (["arquivo"] if com_origem else []))
     for r in resultados:
         por_id = {q.id: q for q in r.questoes}
-        pendentes = [f"{q.id}: {q.motivo_revisao}" for q in r.questoes if q.revisar]
+        pendentes = [f"leitura: {p}" for p in r.pendencias_leitura] + [f"{q.id}: {q.motivo_revisao}" for q in r.questoes if q.revisar]
         feedback = " | ".join(f"{q.id}: {q.feedback}" for q in r.questoes if q.tipo == "discursiva" and q.feedback)
         w.writerow([
             r.aluno, *(br(por_id[i].nota) for i in ids), br(r.nota), br(r.valor_total),
             "SIM" if r.revisar else "", " / ".join(pendentes), feedback,
-        ])
+        ] + ([r.origem] if com_origem else []))
     return buf.getvalue()
 
 

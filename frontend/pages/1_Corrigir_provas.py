@@ -20,8 +20,8 @@ import streamlit as st  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 from src.grading import (  # noqa: E402
-    Entrega, Gabarito, corrigir_turma, dividir_pdf_turma, ler_respostas_csv, resultados_csv, resumo_turma,
-    transcrever_lote, transcricoes_csv,
+    Entrega, Gabarito, corrigir_provas_papel, corrigir_turma, dividir_pdf_turma, ler_respostas_csv, resultados_csv,
+    resumo_turma, transcricoes_csv,
 )
 from src.grading.papel import EXT_IMAGEM, ProvaPapel, pdf_para_imagens, transcrever_prova  # noqa: E402
 
@@ -87,14 +87,13 @@ st.caption(
     "Objetivas: corrigidas na hora pelo gabarito. Discursivas: corrigidas pela IA seguindo a sua rubrica. "
     "O que for ambíguo ou de baixa confiança fica marcado para sua revisão. A nota final é sempre do professor."
 )
-with st.expander("Como funciona com prova mista, em papel e no computador"):
+with st.expander("Como funciona"):
     st.markdown(
         "1. **Gabarito (.json):** questões com `id`, `tipo` (objetiva/discursiva), `valor`, `gabarito` (letra) "
         "ou `resposta_esperada` e `rubrica`.\n"
-        "2. **Provas em papel:** aba *Ler provas em papel*. Baixe a planilha, confira as linhas com `conferir` "
-        "preenchido e apague esse texto.\n"
-        "3. **Provas no computador:** CSV com coluna `aluno` + `Q1`, `Q2`... (Google Forms, Moodle).\n"
-        "4. **Corrigir:** envie as planilhas juntas na aba *Corrigir*."
+        "2. **Provas em papel:** aba *Provas dos alunos*. Envie os PDFs ou fotos e clique em *Corrigir provas*. "
+        "Leituras duvidosas (nome não encontrado, marcação ambígua, letra ilegível) ficam marcadas para sua revisão.\n"
+        "3. **Provas no computador:** CSV com coluna `aluno` + `Q1`, `Q2`... (Google Forms, Moodle)."
     )
     modelo = RAIZ / "examples" / "gabarito_exemplo.json"
     if modelo.exists():
@@ -105,10 +104,69 @@ gab = ler_gabarito(gab_file) if gab_file else None
 if gab:
     st.success(f"{gab.titulo}: {len(gab.questoes)} questões, valendo {gab.valor_total:g} pontos.")
 
-aba_corrigir, aba_papel, aba_uma = st.tabs(["Corrigir", "Ler provas em papel", "Uma prova avulsa"])
+aba_provas, aba_planilhas, aba_uma = st.tabs(["Provas dos alunos", "Provas feitas no computador", "Uma prova avulsa"])
 
-with aba_corrigir:
-    planilhas = st.file_uploader("Planilhas de respostas (.csv), papel e computador", type=["csv"], accept_multiple_files=True)
+
+def mostrar_resultado(chave: str) -> None:
+    """Métricas, tabela e downloads de uma correção guardada em st.session_state[chave]."""
+    dados = st.session_state[chave]
+    r = dados["resumo"]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Alunos", r["alunos"])
+    c2.metric("Média", r["media"])
+    c3.metric("Mediana", r["mediana"])
+    c4.metric("Para sua revisão", r["a_revisar"])
+    b1, b2 = st.columns(2)
+    b1.download_button("Baixar notas (.csv)", dados["notas"].encode("utf-8"), "notas.csv", "text/csv",
+                       type="primary", key=f"dl_notas_{chave}")
+    if dados.get("transcricoes"):
+        b2.download_button("Baixar o que a IA leu de cada prova (.csv)", dados["transcricoes"].encode("utf-8"),
+                           "leitura_das_provas.csv", "text/csv", key=f"dl_leitura_{chave}")
+    df = tabela(dados["notas"])
+    if st.toggle("Mostrar só os que precisam de revisão", value=r["a_revisar"] > 0, key=f"tg_{chave}"):
+        df = df[df["revisar"] == "SIM"]
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+with aba_provas:
+    st.write("Envie as provas digitalizadas ou fotografadas. O sistema lê cada uma e já devolve as notas.")
+    modo = st.radio(
+        "Como estão as provas?",
+        ["Um arquivo por aluno (PDF ou foto)", "Um PDF só com a turma inteira"],
+        horizontal=True,
+    )
+    if modo.startswith("Um arquivo"):
+        provas = st.file_uploader("Provas dos alunos", type=["pdf", "png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
+        pronto = bool(gab and provas)
+    else:
+        pdf_turma = st.file_uploader("PDF da turma (provas em sequência)", type=["pdf"])
+        ppa = st.number_input("Quantas páginas tem cada prova?", min_value=1, max_value=20, value=2)
+        pronto = bool(gab and pdf_turma)
+    if not gab:
+        st.info("Envie primeiro o gabarito e a rubrica, no campo acima.")
+    if st.button("Corrigir provas", type="primary", disabled=not pronto):
+        try:
+            with st.spinner("Preparando as páginas..."):
+                if modo.startswith("Um arquivo"):
+                    lote = [ProvaPapel(origem=f.name, paginas=paginas_do_upload(f)) for f in provas]
+                else:
+                    lote = dividir_pdf_turma(pdf_turma.getvalue(), int(ppa), pdf_turma.name)
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
+        itens, res = corrigir_provas_papel(
+            lote, gab, progresso_leitura=barra("Lendo provas"), progresso_correcao=barra("Corrigindo")
+        )
+        st.session_state["res_provas"] = {
+            "notas": resultados_csv(gab, res),
+            "resumo": resumo_turma(res),
+            "transcricoes": transcricoes_csv(gab, itens),
+        }
+    if "res_provas" in st.session_state:
+        mostrar_resultado("res_provas")
+
+with aba_planilhas:
+    planilhas = st.file_uploader("Planilhas de respostas (.csv), ex.: Google Forms ou Moodle", type=["csv"], accept_multiple_files=True)
     literatura = False  # a base de literatura do OdontoAI não está neste servidor
     if st.button("Corrigir turma", type="primary", disabled=not (gab and planilhas)):
         try:
@@ -117,48 +175,9 @@ with aba_corrigir:
             st.error(f"Planilha inválida: {e}")
             st.stop()
         res = corrigir_turma(gab, entregas, usar_literatura=literatura, progresso=barra("Corrigindo discursivas"))
-        st.session_state["notas"] = resultados_csv(gab, res)
-        st.session_state["resumo"] = resumo_turma(res)
-    if "notas" in st.session_state:
-        r = st.session_state["resumo"]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Alunos", r["alunos"])
-        c2.metric("Média", r["media"])
-        c3.metric("Mediana", r["mediana"])
-        c4.metric("Para sua revisão", r["a_revisar"])
-        st.download_button("Baixar notas (.csv)", st.session_state["notas"].encode("utf-8"), "notas.csv", "text/csv")
-        df = tabela(st.session_state["notas"])
-        if st.toggle("Mostrar só os que precisam de revisão", value=r["a_revisar"] > 0):
-            df = df[df["revisar"] == "SIM"]
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
-with aba_papel:
-    modo = st.radio("Como as provas foram digitalizadas?", ["Um arquivo por aluno", "PDF único da turma"], horizontal=True)
-    if modo == "Um arquivo por aluno":
-        provas = st.file_uploader("Provas (PDF ou foto, um por aluno)", type=["pdf", "png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
-        pronto = bool(gab and provas)
-    else:
-        pdf_turma = st.file_uploader("PDF da turma", type=["pdf"])
-        ppa = st.number_input("Páginas de cada prova", min_value=1, max_value=20, value=2)
-        pronto = bool(gab and pdf_turma)
-    if st.button("Ler provas", type="primary", disabled=not pronto):
-        try:
-            with st.spinner("Preparando as páginas..."):
-                if modo == "Um arquivo por aluno":
-                    lote = [ProvaPapel(origem=f.name, paginas=paginas_do_upload(f)) for f in provas]
-                else:
-                    lote = dividir_pdf_turma(pdf_turma.getvalue(), int(ppa), pdf_turma.name)
-        except ValueError as e:
-            st.error(str(e))
-            st.stop()
-        itens = transcrever_lote(lote, gab, progresso=barra("Lendo provas"))
-        st.session_state["papel"] = transcricoes_csv(gab, itens)
-    if "papel" in st.session_state:
-        df = tabela(st.session_state["papel"])
-        pend = int((df["conferir"] != "").sum())
-        st.success(f"{len(df)} provas lidas. {pend} para conferir (coluna 'conferir').")
-        st.download_button("Baixar respostas (.csv)", st.session_state["papel"].encode("utf-8"), "respostas_papel.csv", "text/csv")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.session_state["res_planilhas"] = {"notas": resultados_csv(gab, res), "resumo": resumo_turma(res)}
+    if "res_planilhas" in st.session_state:
+        mostrar_resultado("res_planilhas")
 
 with aba_uma:
     st.write("Envie as páginas de uma prova (na ordem). Confira a transcrição antes de corrigir.")

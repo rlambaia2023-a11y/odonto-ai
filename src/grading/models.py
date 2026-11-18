@@ -95,7 +95,10 @@ class ResultadoAluno(BaseModel):
     valor_total: float
     questoes: list[ResultadoQuestao]
     comentario_geral: str = ""
+    # Problemas na leitura da prova em papel (nome não lido, marcação ambígua, trecho ilegível...)
+    pendencias_leitura: list[str] = Field(default_factory=list)
+    origem: str = ""  # arquivo/páginas da prova física
 
     @property
     def revisar(self) -> bool:
-        return any(q.revisar for q in self.questoes)
+        return bool(self.pendencias_leitura) or any(q.revisar for q in self.questoes)

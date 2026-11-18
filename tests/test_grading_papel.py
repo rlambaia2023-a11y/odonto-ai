@@ -196,3 +196,28 @@ def test_api_corrigir_varias_planilhas(cliente, monkeypatch):
                ("respostas", ("a.csv", csv, "text/csv")), ("respostas", ("b.csv", csv, "text/csv"))],
     )
     assert r.status_code == 200 and r.content.decode("utf-8-sig").count("Ana Souza") == 2
+
+
+def test_corrigir_provas_papel_em_um_passo():
+    """Provas em papel -> notas, sem planilha intermediária; pendências de leitura marcam revisão."""
+    from src.grading import corrigir_provas_papel, resultados_csv, resumo_turma
+
+    def respostas(i):
+        if i == 1:  # primeira prova: tudo legível
+            return {"aluno": "Daniel", "respostas": {"Q1": "B", "Q2": "C", "Q3": "A", "Q4": "biofilme...", "Q5": "tópico"}}
+        return {"aluno": "", "respostas": {"Q1": "AMBÍGUA", "Q2": "C", "Q3": "D", "Q4": "", "Q5": ""}}
+
+    def llm(system, user, imagens=None):
+        if "transcreve" in system:
+            # ordem de chegada não é garantida em paralelo: decide pelo nº de páginas
+            return json.dumps(respostas(1 if len(imagens) == 2 else 2))
+        return json.dumps({"criterios": [{"pontos_obtidos": 1}] * 3, "nota": 2, "feedback": "ok", "confianca": 0.9})
+
+    lote = dividir_pdf_turma(pdf(2), 2, "a.pdf") + [ProvaPapel("b.jpg", [(png(), "image/png")])]
+    itens, res = corrigir_provas_papel(lote, GAB, llm=llm)
+    assert [r.aluno for r in res] == ["Daniel", "Sem nome (b.jpg)"]
+    assert res[0].nota == 8 and not res[0].revisar
+    assert res[1].revisar and "nome não encontrado" in res[1].pendencias_leitura
+    csv_txt = resultados_csv(GAB, res)
+    assert csv_txt.splitlines()[0].endswith(";arquivo") and "leitura: Q1 marcação ambígua" in csv_txt
+    assert resumo_turma(res)["a_revisar"] == 1

@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Callable
 
 from ..utils import logger
-from .grader import MAX_PARALELO
+from .grader import MAX_PARALELO, corrigir_turma
 from .llm import Imagem, LLMFn, chamar_llm, extrair_json
-from .models import Entrega, Gabarito
+from .models import Entrega, Gabarito, ResultadoAluno
 
 EXT_IMAGEM = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 MAX_PAGINAS = 20
@@ -185,3 +185,22 @@ def transcricoes_csv(gab: Gabarito, itens: list[Transcricao]) -> str:
     for t in itens:
         w.writerow([t.entrega.aluno, *(t.entrega.respostas.get(i, "") for i in ids), t.origem, " / ".join(t.conferir)])
     return buf.getvalue()
+
+
+def corrigir_provas_papel(
+    provas: list[ProvaPapel],
+    gab: Gabarito,
+    llm: LLMFn | None = None,
+    progresso_leitura: Callable[[int, int], None] | None = None,
+    progresso_correcao: Callable[[int, int], None] | None = None,
+) -> tuple[list[Transcricao], list[ResultadoAluno]]:
+    """Fluxo completo da prova em papel: lê cada prova e já corrige.
+
+    Problemas de leitura não bloqueiam a nota: entram em `pendencias_leitura` e marcam o aluno para revisão.
+    """
+    itens = transcrever_lote(provas, gab, llm=llm, progresso=progresso_leitura)
+    resultados = corrigir_turma(gab, [t.entrega for t in itens], llm=llm, progresso=progresso_correcao)
+    for t, r in zip(itens, resultados):
+        r.pendencias_leitura = list(t.conferir)
+        r.origem = t.origem
+    return itens, resultados
