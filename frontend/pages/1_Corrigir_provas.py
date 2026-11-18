@@ -49,6 +49,21 @@ def paginas_do_upload(f) -> list[tuple[bytes, str]]:
     return [(dados, EXT_IMAGEM[Path(f.name).suffix.lower()])]
 
 
+def envio_novo(chave: str, arquivos, *extra) -> bool:
+    """True na primeira vez que este conjunto de arquivos chega: a correção começa sozinha.
+
+    Reenviar os mesmos arquivos não refaz o trabalho (use o botão para repetir).
+    """
+    if not arquivos:
+        return False
+    lista = arquivos if isinstance(arquivos, list) else [arquivos]
+    assinatura = (tuple((f.name, f.size, getattr(f, "file_id", "")) for f in lista), extra)
+    if st.session_state.get(f"_envio_{chave}") == assinatura:
+        return False
+    st.session_state[f"_envio_{chave}"] = assinatura
+    return True
+
+
 def barra(rotulo: str):
     b = st.progress(0.0, text=rotulo)
     return lambda feitas, total: b.progress(feitas / total, text=f"{rotulo} {feitas}/{total}")
@@ -97,7 +112,9 @@ if fonte.startswith("Montar"):
         "Conferir as respostas na internet (literatura, diretrizes e bancos de questões)", value=True,
         help="Mais lento e usa mais créditos da IA, mas cruza cada resposta com fontes e mostra os links.",
     )
-    if st.button("Montar gabarito", disabled=not docs):
+    st.caption("Assim que os arquivos chegam, o gabarito começa a ser montado. Ajuste o valor e as orientações antes de enviar.")
+    refazer = st.button("Montar de novo", disabled=not docs)
+    if refazer or envio_novo("gabarito", docs):
         try:
             paginas, textos = [], []
             for d in docs:
@@ -204,16 +221,21 @@ with aba_provas:
         ["Um arquivo por aluno (PDF ou foto)", "Um PDF só com a turma inteira"],
         horizontal=True,
     )
+    ppa = 1
     if modo.startswith("Um arquivo"):
         provas = st.file_uploader("Provas dos alunos", type=["pdf", "png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
         pronto = bool(gab and provas)
     else:
+        ppa = st.number_input("Quantas páginas tem cada prova? (informe antes de enviar)", min_value=1, max_value=20, value=2)
         pdf_turma = st.file_uploader("PDF da turma (provas em sequência)", type=["pdf"])
-        ppa = st.number_input("Quantas páginas tem cada prova?", min_value=1, max_value=20, value=2)
         pronto = bool(gab and pdf_turma)
     if not gab:
         st.info("Monte ou envie o gabarito primeiro (passo 1, acima).")
-    if st.button("Corrigir provas", type="primary", disabled=not pronto):
+    if pronto:
+        st.caption("A correção começa sozinha assim que todas as provas terminam de subir.")
+    enviados = provas if modo.startswith("Um arquivo") else pdf_turma
+    auto = pronto and envio_novo("provas", enviados, modo, int(ppa))
+    if st.button("Corrigir de novo", disabled=not pronto) or auto:
         try:
             with st.spinner("Preparando as páginas..."):
                 if modo.startswith("Um arquivo"):
@@ -237,7 +259,8 @@ with aba_provas:
 with aba_planilhas:
     planilhas = st.file_uploader("Planilhas de respostas (.csv), ex.: Google Forms ou Moodle", type=["csv"], accept_multiple_files=True)
     literatura = False  # a base de literatura do OdontoAI não está neste servidor
-    if st.button("Corrigir turma", type="primary", disabled=not (gab and planilhas)):
+    auto = bool(gab and planilhas) and envio_novo("planilhas", planilhas)
+    if st.button("Corrigir de novo", key="refazer_planilhas", disabled=not (gab and planilhas)) or auto:
         try:
             entregas: list[Entrega] = [e for f in planilhas for e in ler_respostas_csv(f.getvalue())]
         except (ValueError, UnicodeDecodeError) as e:
@@ -249,20 +272,23 @@ with aba_planilhas:
         mostrar_resultado("res_planilhas")
 
 with aba_uma:
-    st.write("Envie as páginas de uma prova (na ordem). Confira a transcrição antes de corrigir.")
+    st.write("Envie as páginas de uma prova (na ordem). A leitura e a correção começam sozinhas; "
+             "se a leitura tiver algum erro, ajuste o texto e corrija de novo.")
     paginas = st.file_uploader("Páginas", type=["pdf", "png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
-    if st.button("Ler prova", disabled=not (gab and paginas)):
+    auto = bool(gab and paginas) and envio_novo("avulsa", paginas)
+    if st.button("Ler de novo", disabled=not (gab and paginas)) or auto:
         with st.spinner("Lendo a prova..."):
             try:
                 todas = [p for f in paginas for p in paginas_do_upload(f)]
                 st.session_state["avulsa"] = transcrever_prova(todas, gab, origem=paginas[0].name).entrega.model_dump()
+                st.session_state["avulsa_auto"] = True  # corrige logo após a leitura
             except Exception as e:
                 st.error(f"Não foi possível ler a prova: {e}")
     if "avulsa" in st.session_state and gab:
         t = st.session_state["avulsa"]
         aluno = st.text_input("Aluno", t.get("aluno", ""))
         respostas = {q.id: st.text_area(q.id, t["respostas"].get(q.id, ""), height=80) for q in gab.questoes}
-        if st.button("Corrigir esta prova", type="primary"):
+        if st.button("Corrigir de novo (após ajustar a leitura)") or st.session_state.pop("avulsa_auto", False):
             with st.spinner("Corrigindo..."):
                 res = corrigir_turma(gab, [Entrega(aluno=aluno or "Sem nome", respostas=respostas)])[0]
             st.metric("Nota", f"{res.nota:g} / {res.valor_total:g}")
