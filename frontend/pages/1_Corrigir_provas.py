@@ -2,12 +2,10 @@
 
 Roda sozinha (deploy do corretor):  streamlit run frontend/pages/1_Corrigir_provas.py
 ou como página do app OdontoAI (menu lateral). Chama o módulo src.grading direto, sem API.
-Acesso protegido pela variável CORRETOR_PASSWORD: sem ela definida, a tela não abre.
+Acesso livre (sem senha): uso pessoal do professor.
 """
-import hmac
 import io
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -30,30 +28,6 @@ from src.grading.gabarito_ia import (  # noqa: E402
 )
 
 st.set_page_config(page_title="Corrigir provas · OdontoAI", page_icon="🦷", layout="wide")
-
-
-# ---------- Acesso ----------
-
-def exigir_senha() -> None:
-    senha = os.getenv("CORRETOR_PASSWORD", "")
-    if not senha:
-        st.error("CORRETOR_PASSWORD não configurada no servidor. Defina a variável para liberar o acesso.")
-        st.stop()
-    if st.session_state.get("autorizado"):
-        return
-    st.title("Corretor de provas")
-    with st.form("login"):
-        tentativa = st.text_input("Senha", type="password")
-        ok = st.form_submit_button("Entrar")
-    if ok:
-        if hmac.compare_digest(tentativa.encode(), senha.encode()):
-            st.session_state["autorizado"] = True
-            st.rerun()
-        st.error("Senha incorreta.")
-    st.stop()
-
-
-exigir_senha()
 
 
 # ---------- Utilidades ----------
