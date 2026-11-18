@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+# .strip(): chaves coladas em painéis costumam vir com espaço ou quebra de linha no fim
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 CHROMA_PATH = os.getenv("CHROMA_PATH", "./data/chroma")
 PUBMED_QUERY = os.getenv("PUBMED_QUERY", "(dentistry OR odontology) AND clinical")

@@ -83,7 +83,8 @@ def corrigir_discursiva(
         logger.warning("Resposta inválida do modelo em %s: %s", q.id, e)
         return _revisao(q, "IA devolveu resposta em formato inválido")
     except Exception as e:  # erro de rede/chave: não derruba a turma inteira
-        logger.error("Falha ao corrigir %s: %s", q.id, e)
+        # só o tipo da causa: a mensagem pode conter cabeçalhos (e a chave)
+        logger.error("Falha ao corrigir %s: %s (causa: %s)", q.id, e, type(e.__cause__).__name__ if e.__cause__ else "-")
         return _revisao(q, f"Falha na chamada à IA: {type(e).__name__}")
 
     # Critérios: limita cada um ao máximo da rubrica (o modelo não pode dar mais que o professor definiu).
