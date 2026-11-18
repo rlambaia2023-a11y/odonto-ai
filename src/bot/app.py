@@ -1,6 +1,6 @@
 """Servidor do bot: webhook do WhatsApp + long polling do Telegram em segundo plano.
 
-Rodar: uvicorn src.bot.app:app --host 0.0.0.0 --port 8081
+Rodar: uvicorn src.bot.app:app --host 0.0.0.0 --port 8081 (no Railway: serviço "bot", Dockerfile.bot)
 Variáveis: TELEGRAM_BOT_TOKEN, BOT_TELEGRAM_IDS; WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID,
 WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET, BOT_WHATSAPP_NUMEROS. Canal sem token fica desligado.
 """

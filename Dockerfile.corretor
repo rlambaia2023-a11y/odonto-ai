@@ -7,8 +7,10 @@ RUN pip install --no-cache-dir -r requirements-corretor.txt
 COPY src ./src
 COPY frontend ./frontend
 COPY examples ./examples
-COPY start-corretor.sh ./
 RUN useradd --create-home app && chown -R app /app
 USER app
-# Railway/Render informam a porta do site em $PORT; o bot usa BOT_PORT (8081)
-CMD ["sh", "start-corretor.sh"]
+# Railway/Render informam a porta em $PORT
+CMD streamlit run frontend/pages/1_Corrigir_provas.py \
+    --server.port ${PORT:-8501} --server.address 0.0.0.0 \
+    --server.headless true --server.maxUploadSize 300 \
+    --browser.gatherUsageStats false
