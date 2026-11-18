@@ -107,3 +107,40 @@ def test_edicao_invalida_aponta_a_linha():
     linhas[2]["rubrica"] = "Biofilme (1 pt)"  # soma 1, questão vale 3
     with pytest.raises(ValueError, match="Linha 3 \\(Q3\\)"):
         linhas_para_gabarito(linhas, "P1", "Perio")
+
+
+def test_resolucao_pegadinha_incorreta_em_negrito():
+    from src.grading.gabarito_ia import montar_gabarito_completo, resolucao_para_markdown
+
+    resp = {"titulo": "P2", "questoes": [{
+        "id": "Q1", "tipo": "objetiva", "valor": 1, "enunciado": "Sobre a gengivite, assinale a INCORRETA",
+        "comando": "Incorreta", "pegadinha": "pede a INCORRETA",
+        "analise": [{"letra": "a", "julgamento": "v", "motivo": "biofilme"}, {"letra": "B", "julgamento": "F", "motivo": "é reversível"}],
+        "gabarito": "B", "alternativa_texto": "É irreversível", "justificativa": "Gengivite é reversível",
+        "fontes": ["https://pubmed.ncbi.nlm.nih.gov/1", "https://pubmed.ncbi.nlm.nih.gov/1"], "confianca": 0.9,
+    }, {"id": "Q2", "tipo": "objetiva", "valor": 1, "enunciado": "Dúvida", "gabarito": "C", "confianca": 0.3}]}
+    llm = llm_com(resp)
+    gab, rasc, resol = montar_gabarito_completo(texto="x", llm=llm, pesquisar_web=True)
+    assert "INCORRETA/FALSA" in llm.chamadas[0][0] and "PESQUISA NA INTERNET" in llm.chamadas[0][0]
+    r = resol[0]
+    assert r["comando"] == "incorreta" and r["analise"][0] == {"letra": "A", "julgamento": "V", "motivo": "biofilme"}
+    assert len(r["fontes"]) == 1
+    assert rasc == ["Q2"]  # confiança baixa vai para conferência
+    md = resolucao_para_markdown(resol, gab.titulo)
+    assert "**Resposta: B) É irreversível**" in md and "**INCORRETA**" in md and "(conferir)" in md
+
+
+def test_sem_pesquisa_web_nao_pede_busca():
+    llm = llm_com(RESPOSTA)
+    montar_gabarito(texto="x", llm=llm)
+    assert "PESQUISA NA INTERNET" not in llm.chamadas[0][0]
+
+
+def test_ocr_paginas_e_json_com_texto_antes():
+    from src.grading.gabarito_ia import ocr_paginas
+    from src.grading.llm import extrair_json
+
+    vistos = []
+    assert ocr_paginas([(b"x", "image/png")], llm=lambda s, u, imagens=None: vistos.append(imagens) or " 1) Texto ") == "1) Texto"
+    assert len(vistos[0]) == 1 and ocr_paginas([]) == ""
+    assert extrair_json('Pesquisei {fonte} e conclui:\n{"questoes": [{"id": "Q1"}]}\nfim') == {"questoes": [{"id": "Q1"}]}

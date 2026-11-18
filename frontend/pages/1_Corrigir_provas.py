@@ -25,7 +25,8 @@ from src.grading import (  # noqa: E402
 )
 from src.grading.papel import EXT_IMAGEM, ProvaPapel, pdf_para_imagens, transcrever_prova  # noqa: E402
 from src.grading.gabarito_ia import (  # noqa: E402
-    gabarito_para_linhas, ler_documento, linhas_para_gabarito, montar_gabarito,
+    gabarito_para_linhas, ler_documento, linhas_para_gabarito, montar_gabarito_completo, ocr_paginas,
+    resolucao_para_markdown,
 )
 
 st.set_page_config(page_title="Corrigir provas · OdontoAI", page_icon="🦷", layout="wide")
@@ -110,20 +111,39 @@ fonte = st.radio(
     horizontal=True, label_visibility="collapsed",
 )
 if fonte.startswith("Montar"):
-    doc = st.file_uploader(
-        "Sua prova com as respostas (PDF, Word, foto ou texto). Sem as respostas, a IA escreve um rascunho para o senhor conferir.",
-        type=["pdf", "docx", "png", "jpg", "jpeg", "webp", "txt"],
+    docs = st.file_uploader(
+        "Sua prova (PDF, Word, fotos ou texto; pode enviar várias fotos, uma por página, na ordem). "
+        "Fotos e PDFs passam por leitura OCR. Sem as respostas, a IA resolve e o senhor confere.",
+        type=["pdf", "docx", "png", "jpg", "jpeg", "webp", "txt"], accept_multiple_files=True,
     )
     c1, c2 = st.columns([1, 3])
     nota_total = c1.number_input("Valor total da prova", min_value=1.0, max_value=1000.0, value=10.0, step=0.5)
     orient = c2.text_input("Orientações (opcional)", placeholder="Ex.: questões 1 a 10 valem 0,5; aceitar sinônimos técnicos")
-    if st.button("Montar gabarito", disabled=not doc):
+    pesquisar = st.checkbox(
+        "Conferir as respostas na internet (literatura, diretrizes e bancos de questões)", value=True,
+        help="Mais lento e usa mais créditos da IA, mas cruza cada resposta com fontes e mostra os links.",
+    )
+    if st.button("Montar gabarito", disabled=not docs):
         try:
-            paginas, texto = ler_documento(doc.name, doc.getvalue())
-            with st.spinner("Lendo a prova e montando o gabarito..."):
-                g, rasc = montar_gabarito(paginas, texto, nota_total=nota_total, orientacoes=orient)
+            paginas, textos = [], []
+            for d in docs:
+                pg, tx = ler_documento(d.name, d.getvalue())
+                paginas += pg
+                if tx.strip():
+                    textos.append(tx)
+            ocr = ""
+            if paginas:
+                with st.spinner(f"Lendo {len(paginas)} página(s) por OCR..."):
+                    ocr = ocr_paginas(paginas)
+            texto = "\n\n".join(textos + ([ocr] if ocr else []))
+            aviso = "conferindo cada resposta na internet (pode levar alguns minutos)" if pesquisar else "resolvendo"
+            with st.spinner(f"Montando o gabarito: {aviso}..."):
+                g, rasc, resol = montar_gabarito_completo(
+                    paginas, texto, nota_total=nota_total, orientacoes=orient, pesquisar_web=pesquisar,
+                )
             st.session_state["gab_edit"] = {
                 "linhas": gabarito_para_linhas(g, rasc), "titulo": g.titulo, "disciplina": g.disciplina,
+                "ocr": ocr, "resolucao": resol,
             }
             st.session_state.pop("res_provas", None)
             st.session_state.pop("res_planilhas", None)
@@ -131,6 +151,14 @@ if fonte.startswith("Montar"):
             st.error(f"Não foi possível montar o gabarito: {e}")
     if "gab_edit" in st.session_state:
         ed = st.session_state["gab_edit"]
+        if ed.get("ocr"):
+            with st.expander("Texto lido da prova (OCR)"):
+                st.text(ed["ocr"])
+        if ed.get("resolucao"):
+            md = resolucao_para_markdown(ed["resolucao"], ed["titulo"])
+            with st.expander("Resolução comentada (resposta em negrito, pegadinhas e fontes)", expanded=True):
+                st.markdown(md)
+            st.download_button("Baixar resolução (.md)", md.encode("utf-8"), "resolucao.md", "text/markdown")
         st.markdown("**Confira e ajuste.** Dá para editar qualquer célula, apagar ou incluir questões.")
         t1, t2 = st.columns(2)
         titulo = t1.text_input("Título", ed["titulo"])
