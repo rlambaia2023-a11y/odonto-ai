@@ -21,6 +21,7 @@ from src.grading import (  # noqa: E402
     Entrega, Gabarito, corrigir_provas_papel, corrigir_turma, dividir_pdf_turma, ler_respostas_csv, resultados_csv,
     resumo_turma, transcricoes_csv,
 )
+from src.grading import historico  # noqa: E402
 from src.grading.papel import EXT_IMAGEM, ProvaPapel, pdf_para_imagens, transcrever_prova  # noqa: E402
 from src.grading.gabarito_ia import (  # noqa: E402
     gabarito_para_linhas, ler_documento, linhas_para_gabarito, montar_gabarito_completo, ocr_paginas,
@@ -71,6 +72,14 @@ def barra(rotulo: str):
 
 def tabela(texto_csv: str) -> pd.DataFrame:
     return pd.read_csv(io.StringIO(texto_csv.lstrip("﻿")), sep=";", dtype=str).fillna("")
+
+
+def registrar(tipo: str, titulo: str, dados: dict) -> None:
+    """Guarda no histórico; uma falha de disco não pode atrapalhar a correção."""
+    try:
+        historico.salvar(tipo, titulo, dados)
+    except Exception as e:
+        st.warning(f"Correção feita, mas não foi possível guardar no histórico: {e}")
 
 
 # ---------- Tela ----------
@@ -138,6 +147,11 @@ if fonte.startswith("Montar"):
             }
             st.session_state.pop("res_provas", None)
             st.session_state.pop("res_planilhas", None)
+            registrar("gabarito", g.titulo, {
+                "gabarito_json": g.model_dump_json(indent=2),
+                "resolucao_md": resolucao_para_markdown(resol, g.titulo) if resol else "",
+                "questoes": len(g.questoes),
+            })
         except Exception as e:  # documento ruim ou falha da IA: mensagem clara, sem derrubar a tela
             st.error(f"Não foi possível montar o gabarito: {e}")
     if "gab_edit" in st.session_state:
@@ -253,6 +267,7 @@ with aba_provas:
             "resumo": resumo_turma(res),
             "transcricoes": transcricoes_csv(gab, itens),
         }
+        registrar("provas", gab.titulo, st.session_state["res_provas"])
     if "res_provas" in st.session_state:
         mostrar_resultado("res_provas")
 
@@ -268,6 +283,7 @@ with aba_planilhas:
             st.stop()
         res = corrigir_turma(gab, entregas, usar_literatura=literatura, progresso=barra("Corrigindo discursivas"))
         st.session_state["res_planilhas"] = {"notas": resultados_csv(gab, res), "resumo": resumo_turma(res)}
+        registrar("planilhas", gab.titulo, st.session_state["res_planilhas"])
     if "res_planilhas" in st.session_state:
         mostrar_resultado("res_planilhas")
 
@@ -295,3 +311,55 @@ with aba_uma:
             for q in res.questoes:
                 marca = " ⚠️ revisar" if q.revisar else ""
                 st.markdown(f"**{q.id}**: {q.nota:g}/{q.valor:g}{marca}. {q.feedback}")
+            registrar("avulsa", gab.titulo, {
+                "aluno": res.aluno, "nota": res.nota, "valor_total": res.valor_total,
+                "notas": resultados_csv(gab, [res]), "resumo": resumo_turma([res]),
+            })
+
+# ---------- Histórico ----------
+
+ROTULO = {"gabarito": "Gabarito montado", "provas": "Provas dos alunos",
+          "planilhas": "Provas no computador", "avulsa": "Prova avulsa"}
+
+st.divider()
+st.subheader("3. Histórico")
+registros = historico.listar()
+if not registros:
+    st.caption("Nenhuma correção guardada ainda. Cada gabarito montado e cada correção aparecem aqui, com data e hora.")
+else:
+    topo1, topo2 = st.columns([3, 1])
+    topo1.caption(f"{len(registros)} registro(s), do mais recente para o mais antigo (horário de Brasília).")
+    with topo2.popover("Excluir todo o histórico", use_container_width=True):
+        st.write("Apaga todos os registros. Não dá para desfazer.")
+        if st.button("Sim, excluir tudo", type="primary", key="hist_apagar_tudo"):
+            historico.excluir_tudo()
+            st.rerun()
+for reg in registros:
+    d, rid, tipo = reg.get("dados", {}), reg["id"], reg.get("tipo", "")
+    resumo = d.get("resumo") or {}
+    if tipo == "avulsa":
+        extra = f" · {d.get('aluno', '')}: {d.get('nota', 0):g}/{d.get('valor_total', 0):g}"
+    elif tipo == "gabarito":
+        extra = f" · {d.get('questoes', 0)} questões"
+    else:
+        extra = f" · {resumo.get('alunos', 0)} alunos, média {resumo.get('media', '-')}"
+    cabecalho = f"🕒 {historico.data_hora(reg)} — {ROTULO.get(tipo, tipo)}: {reg.get('titulo', '')}{extra}"
+    with st.expander(cabecalho):
+        c1, c2, c3 = st.columns(3)
+        if d.get("notas"):
+            c1.download_button("Baixar notas (.csv)", d["notas"].encode("utf-8"), f"notas_{rid}.csv", "text/csv",
+                               key=f"hist_notas_{rid}")
+        if d.get("transcricoes"):
+            c2.download_button("Baixar leitura das provas (.csv)", d["transcricoes"].encode("utf-8"),
+                               f"leitura_{rid}.csv", "text/csv", key=f"hist_leit_{rid}")
+        if d.get("gabarito_json"):
+            c1.download_button("Baixar gabarito (.json)", d["gabarito_json"].encode("utf-8"), f"gabarito_{rid}.json",
+                               "application/json", key=f"hist_gab_{rid}")
+        if d.get("resolucao_md"):
+            c2.download_button("Baixar resolução (.md)", d["resolucao_md"].encode("utf-8"), f"resolucao_{rid}.md",
+                               "text/markdown", key=f"hist_res_{rid}")
+        if c3.button("🗑️ Excluir", key=f"hist_del_{rid}"):
+            historico.excluir(rid)
+            st.rerun()
+        if d.get("notas"):
+            st.dataframe(tabela(d["notas"]), use_container_width=True, hide_index=True)
